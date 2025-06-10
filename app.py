@@ -109,16 +109,54 @@ if uploaded_file is not None:
     with col1:
         st.image(image, use_container_width=True)
 
-    with col2:
-        gray_image = image.convert("L")
-        gray_array = np.array(gray_image)
-        gray_array = (gray_array - gray_array.min()) / (gray_array.max() - gray_array.min() + 1e-8)
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.imshow(image)
-        ax.imshow(gray_array, cmap='Reds', alpha=0.5)
-        ax.axis('off')
-        # ax.set_title('Heatmap Overlay', fontsize=12)
-        st.pyplot(fig)
+        with col2:
+
+            model.eval()
+            img_tensor = transform(image).unsqueeze(0).requires_grad_()
+
+            def get_last_conv_layer(model):
+                return model.features[-1]  # Last conv layer in MobileNetV2
+
+            target_layer = get_last_conv_layer(model)
+            gradients = []
+            activations = []
+
+            def backward_hook(module, grad_input, grad_output):
+                gradients.append(grad_output[0])
+
+            def forward_hook(module, input, output):
+                activations.append(output)
+
+            handle_fw = target_layer.register_forward_hook(forward_hook)
+            handle_bw = target_layer.register_backward_hook(backward_hook)
+
+            output = model(img_tensor)
+            pred_class_idx = output.argmax(dim=1).item()
+
+            model.zero_grad()
+            class_score = output[0, pred_class_idx]
+            class_score.backward()
+
+            activ = activations[0].squeeze(0)
+            grad = gradients[0].squeeze(0)
+
+            weights = grad.mean(dim=(1, 2), keepdim=True)
+            cam = (weights * activ).sum(dim=0)
+            cam = torch.relu(cam).detach().numpy()
+            cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+            cam = np.uint8(255 * cam)
+            cam = Image.fromarray(cam).resize(image.size, resample=Image.BILINEAR)
+            cam = np.array(cam)
+
+            fig, ax = plt.subplots(figsize=(6, 6))
+            ax.imshow(image)
+            ax.imshow(cam, cmap='jet', alpha=0.5)
+            ax.axis('off')
+            st.pyplot(fig)
+
+            handle_fw.remove()
+            handle_bw.remove()
+
     
     confidence_threshold = st.select_slider("ความมั่นใจของโมเดล", range(0, 101), value=50)
 
