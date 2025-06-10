@@ -63,8 +63,8 @@ for class_folder in os.listdir(example_images_dir):
             example_dict[class_folder] = images
 
 
-
-st.title("🍅 AIB5-Tomato-Disease-Classification")
+st.title("🍅")
+st.title("AIB5-Tomato-Disease-Classification")
 
 model = load_model()
 
