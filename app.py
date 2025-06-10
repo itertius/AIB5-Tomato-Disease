@@ -27,7 +27,7 @@ class TomatoDiseaseModel(nn.Module):
 @st.cache_resource
 def load_model():
     model = TomatoDiseaseModel()
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
     model.load_state_dict(torch.load('Models/Week8/Week8v2.pth', map_location=device))
     model.eval()
