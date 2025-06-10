@@ -6,6 +6,7 @@ import torch.nn as nn
 import torchvision.models as models
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 class TomatoDiseaseModel(nn.Module):
     def __init__(self, num_classes=10):
@@ -25,10 +26,10 @@ class TomatoDiseaseModel(nn.Module):
 
 @st.cache_resource
 def load_model():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = TomatoDiseaseModel()
-    # model.load_state_dict(torch.load('Models/Week8/Week8v3.pth', map_location=torch.device('mps')))
-    model.load_state_dict(torch.load('Models/Week8/Week8v3.pth', map_location=device))
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    model.load_state_dict(torch.load('Models/Week8/Week8v2.pth', map_location=device))
     model.eval()
     return model
 
@@ -38,21 +39,70 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-class_names = ['Bacterial Spot - ใบเกิดจุดแบคทีเรีย', 'Early Blight - โรคใบไหม้ระยะเริ่มต้น', 'Late Blight - โรคใบไหม้ระยะสุดท้าย',
-               'Leaf Mold - เชื้อราในใบไม้', 'Septoria Leaf Spot - โรคใบจุดเซปโทเรีย', 'Two Spotted Spider Mite - ไรสองจุด',
-               'Target Spot - โรคใบจุดเป้ากระสุน', 'Yellow Leaf Curl Virus - ไวรัสใบม้วนเหลืองในมะเขือเทศ',
-               'Mosaic Virus - ไวรัสโมเสก', 'Healthy - ใบสุขภาพดี']
+class_names = [
+    'Bacterial Spot - ใบเกิดจุดแบคทีเรีย',
+    'Early Blight - โรคใบไหม้ระยะเริ่มต้น',
+    'Late Blight - โรคใบไหม้ระยะสุดท้าย',
+    'Leaf Mold - เชื้อราในใบไม้',
+    'Septoria Leaf Spot - โรคใบจุดเซปโทเรีย',
+    'Two Spotted Spider Mite - ไรสองจุด',
+    'Target Spot - โรคใบจุดเป้ากระสุน',
+    'Yellow Leaf Curl Virus - ไวรัสใบม้วนเหลืองในมะเขือเทศ',
+    'Mosaic Virus - ไวรัสโมเสก',
+    'Healthy - ใบสุขภาพดี'
+]
 
-st.title("AIB5-Tomato-Disease-Classification 🍅")
+example_images_dir = "Data/Sample"
+example_dict = {}
+
+for class_folder in os.listdir(example_images_dir):
+    folder_path = os.path.join(example_images_dir, class_folder)
+    if os.path.isdir(folder_path):
+        images = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        if images:
+            example_dict[class_folder] = images
+
+
+
+st.title("🍅 AIB5-Tomato-Disease-Classification")
 
 model = load_model()
 
-uploaded_file = st.file_uploader("Choose a tomato leaf image...", type=["jpg", "jpeg", "png"])
+mode = st.selectbox("เลือกโหมดการใช้งาน", ["อัพโหลดรูป", "เลือกรูปตัวอย่าง"])
+
+image = None
+
+if mode == "อัพโหลดรูป":
+    uploaded_file = st.file_uploader("อัพโหลดภาพใบมะเขือเทศ", type=["jpg", "jpeg", "png"])
+    if uploaded_file:
+        image = Image.open(uploaded_file).convert("RGB")
+
+elif mode == "เลือกรูปตัวอย่าง":
+    selected_class = st.selectbox("ตัวอย่างรูปภาพ", list(example_dict.keys()))
+    
+    image_paths = example_dict[selected_class]
+
+    image_filenames = [os.path.basename(path) for path in image_paths]
+
+    selected_filename = st.selectbox("เลือกรูปภาพ", image_filenames)
+
+    selected_image_path = None
+    for path in image_paths:
+        if os.path.basename(path) == selected_filename:
+            selected_image_path = path
+            break
+
+    if os.path.exists(selected_image_path):
+        image = Image.open(selected_image_path).convert("RGB")
+        uploaded_file = selected_image_path
+    else:
+        st.error("ไม่พบภาพตัวอย่างสำหรับคลาสนี้")
+
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)    
+    image = Image.open(uploaded_file).convert("RGB")
 
-    st.markdown("<h4 style='text-align: center;'>Uploaded Image</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center;'>ภาพที่อัพโหลด</h4>", unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
 
@@ -70,7 +120,9 @@ if uploaded_file is not None:
         # ax.set_title('Heatmap Overlay', fontsize=12)
         st.pyplot(fig)
     
-    if st.button('Predict'):
+    confidence_threshold = st.select_slider("ความมั่นใจของโมเดล", range(0, 101), value=50)
+
+    if st.button('ทำนาย'):
         img_tensor = transform(image).unsqueeze(0)
         
         with torch.no_grad():
@@ -81,8 +133,12 @@ if uploaded_file is not None:
         pred_class = class_names[pred_idx]
         confidence = probabilities[pred_idx].item()
         
-        st.write(f"Prediction: {pred_class}")
-        st.write(f"Confidence: {confidence:.2%}")
+        if confidence >= confidence_threshold / 100:
+            st.success(f"Prediction: {pred_class} ({confidence:.2%})")
+        else:
+            st.warning("The image might not be a tomato leaf.")
+            st.warning(f"Prediction: {pred_class} ({confidence:.2%})")
+
         
         st.write("All probabilities:")
         for i, prob in enumerate(probabilities):
